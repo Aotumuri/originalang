@@ -1,3 +1,4 @@
+import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import type { FlashMessage, ManagedEntity, WordDraft } from "../types";
 import {
   deleteCategory,
@@ -43,7 +44,10 @@ export function createDictionaryTaxonomyActions({
       return;
     }
 
-    const confirmed = window.confirm(`品詞「${entity.name}」を削除しますか？`);
+    const confirmed = await confirmDialog(`品詞「${entity.name}」を削除しますか？`, {
+      title: "品詞削除",
+      kind: "warning",
+    });
     if (!confirmed) {
       return;
     }
@@ -77,10 +81,14 @@ export function createDictionaryTaxonomyActions({
   }
 
   async function handleDeleteCategory(entity: ManagedEntity): Promise<void> {
-    const confirmed = window.confirm(
+    const confirmed = await confirmDialog(
       entity.usageCount > 0
         ? `カテゴリ「${entity.name}」は ${entity.usageCount} 件の単語で使われています。削除すると関連付けも外れます。続行しますか？`
         : `カテゴリ「${entity.name}」を削除しますか？`,
+      {
+        title: "カテゴリ削除",
+        kind: "warning",
+      },
     );
 
     if (!confirmed) {

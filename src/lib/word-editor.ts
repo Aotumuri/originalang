@@ -16,6 +16,28 @@ export function toErrorMessage(error: unknown): string {
     return error.message;
   }
 
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (error && typeof error === "object") {
+    const candidate = error as { message?: unknown; error?: unknown };
+
+    if (typeof candidate.message === "string" && candidate.message) {
+      return candidate.message;
+    }
+
+    if (typeof candidate.error === "string" && candidate.error) {
+      return candidate.error;
+    }
+
+    try {
+      return JSON.stringify(error);
+    } catch {
+      // Fall through to generic message below.
+    }
+  }
+
   return "不明なエラーが発生しました。";
 }
 

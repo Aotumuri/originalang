@@ -107,7 +107,7 @@ export default function AppToolbar({
         <button type="button" onClick={onBackup}>
           バックアップ作成
         </button>
-        <button type="button" onClick={onResetDictionary}>
+        <button className="danger-button" type="button" onClick={onResetDictionary}>
           データ初期化
         </button>
         <button type="button" onClick={onBuild}>

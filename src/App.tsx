@@ -1,3 +1,4 @@
+import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import {
   startTransition,
   useDeferredValue,
@@ -7,6 +8,7 @@ import {
 } from "react";
 import AppToolbar from "./components/AppToolbar";
 import EntityManagerModal from "./components/EntityManagerModal";
+import ResetDictionaryModal from "./components/ResetDictionaryModal";
 import WordEditorPane from "./components/WordEditorPane";
 import WordListPane from "./components/WordListPane";
 import {
@@ -73,6 +75,9 @@ export default function App() {
   const [duplicateWords, setDuplicateWords] = useState<WordListItem[]>([]);
   const [buildDirectoryPath, setBuildDirectoryPath] = useState("");
   const [managerMode, setManagerMode] = useState<"pos" | "category" | null>(null);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [resetConfirmationText, setResetConfirmationText] = useState("");
+  const [isResettingDictionary, setIsResettingDictionary] = useState(false);
 
   const refreshTokenRef = useRef(0);
   const draftRef = useRef<WordDraft | null>(null);
@@ -405,7 +410,10 @@ export default function App() {
     }
 
     if (!currentDraft.isPersisted && !currentDraft.text.trim()) {
-      return window.confirm("未保存の新規単語を破棄しますか？");
+      return confirmDialog("未保存の新規単語を破棄しますか？", {
+        title: "未保存の変更",
+        kind: "warning",
+      });
     }
 
     const saved = await persistCurrentDraft();
@@ -413,7 +421,10 @@ export default function App() {
       return true;
     }
 
-    return window.confirm("保存に失敗しました。変更を破棄して続けますか？");
+    return confirmDialog("保存に失敗しました。変更を破棄して続けますか？", {
+      title: "保存失敗",
+      kind: "warning",
+    });
   }
 
   async function handleSelectWord(wordId: string): Promise<void> {
@@ -452,7 +463,10 @@ export default function App() {
       return;
     }
 
-    const confirmed = window.confirm(`「${draft.text || "未入力"}」を削除しますか？`);
+    const confirmed = await confirmDialog(`「${draft.text || "未入力"}」を削除しますか？`, {
+      title: "単語削除",
+      kind: "warning",
+    });
     if (!confirmed) {
       return;
     }
@@ -477,6 +491,36 @@ export default function App() {
         tone: "error",
         text: toErrorMessage(error),
       });
+    }
+  }
+
+  function handleOpenResetModal(): void {
+    setResetConfirmationText("");
+    setIsResetModalOpen(true);
+  }
+
+  function handleCloseResetModal(): void {
+    if (isResettingDictionary) {
+      return;
+    }
+    setIsResetModalOpen(false);
+    setResetConfirmationText("");
+  }
+
+  async function handleConfirmResetDictionary(): Promise<void> {
+    if (resetConfirmationText !== "RESET") {
+      return;
+    }
+
+    setIsResettingDictionary(true);
+    try {
+      const didReset = await fileActions.handleResetDictionary();
+      if (didReset) {
+        setIsResetModalOpen(false);
+        setResetConfirmationText("");
+      }
+    } finally {
+      setIsResettingDictionary(false);
     }
   }
 
@@ -512,7 +556,7 @@ export default function App() {
         onOpenBuildFolder={() => void fileActions.handleOpenBuildFolder(buildDirectoryPath)}
         onOpenCategoryManager={() => setManagerMode("category")}
         onOpenPartOfSpeechManager={() => setManagerMode("pos")}
-        onResetDictionary={() => void fileActions.handleResetDictionary()}
+        onResetDictionary={handleOpenResetModal}
         onSearchFiltersChange={setSearchFilters}
         partsOfSpeech={partsOfSpeech}
         saveState={saveState}
@@ -573,6 +617,15 @@ export default function App() {
         onClose={() => setManagerMode(null)}
         onDelete={(entity) => taxonomyActions.handleDeleteCategory(entity)}
         onSave={(entity) => taxonomyActions.handleSaveCategory(entity)}
+      />
+
+      <ResetDictionaryModal
+        confirmationText={resetConfirmationText}
+        isOpen={isResetModalOpen}
+        isSubmitting={isResettingDictionary}
+        onClose={handleCloseResetModal}
+        onConfirm={() => void handleConfirmResetDictionary()}
+        onConfirmationTextChange={setResetConfirmationText}
       />
     </div>
   );

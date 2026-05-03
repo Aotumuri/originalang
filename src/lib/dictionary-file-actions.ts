@@ -1,5 +1,5 @@
 import { appDataDir, join } from "@tauri-apps/api/path";
-import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { confirm as confirmDialog, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { BaseDirectory, mkdir, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { BUILD_DIRECTORY_NAME, EXPORT_FILE_NAME } from "../constants";
@@ -33,6 +33,16 @@ export function createDictionaryFileActions({
   setBuildDirectoryPath,
   setFlashMessage,
 }: DictionaryFileActionDeps) {
+  async function writeAppDataBackup(): Promise<string> {
+    const exportData = await getDictionaryExport();
+    const fileName = backupFileName();
+    await mkdir("backups", { baseDir: BaseDirectory.AppData, recursive: true });
+    await writeTextFile(`backups/${fileName}`, JSON.stringify(exportData, null, 2), {
+      baseDir: BaseDirectory.AppData,
+    });
+    return join(await appDataDir(), "backups", fileName);
+  }
+
   async function handleExportJson(): Promise<void> {
     const canContinue = await ensureDraftSaved();
     if (!canContinue) {
@@ -68,7 +78,13 @@ export function createDictionaryFileActions({
       return;
     }
 
-    const confirmed = window.confirm("現在のDB内容を置き換えて JSON をインポートします。続行しますか？");
+    const confirmed = await confirmDialog(
+      "現在のDB内容を置き換えて JSON をインポートします。続行しますか？",
+      {
+        title: "JSON インポート",
+        kind: "warning",
+      },
+    );
     if (!confirmed) {
       return;
     }
@@ -94,36 +110,67 @@ export function createDictionaryFileActions({
     }
 
     try {
-      const exportData = await getDictionaryExport();
-      const fileName = backupFileName();
-      await mkdir("backups", { baseDir: BaseDirectory.AppData, recursive: true });
-      await writeTextFile(`backups/${fileName}`, JSON.stringify(exportData, null, 2), {
-        baseDir: BaseDirectory.AppData,
-      });
-      const backupPath = await join(await appDataDir(), "backups", fileName);
+      const backupPath = await writeAppDataBackup();
       setFlashMessage(
         createFlashMessage("success", `バックアップを作成しました: ${backupPath}`),
       );
     } catch (error) {
-      setFlashMessage(createFlashMessage("error", toErrorMessage(error)));
+      setFlashMessage(
+        createFlashMessage("error", `バックアップ作成に失敗しました: ${toErrorMessage(error)}`),
+      );
     }
   }
 
-  async function handleResetDictionary(): Promise<void> {
-    const confirmed = window.confirm("辞書データを初期化します。単語は削除されます。続行しますか？");
-    if (!confirmed) {
-      return;
+  async function handleResetDictionary(): Promise<boolean> {
+    const canContinue = await ensureDraftSaved();
+    if (!canContinue) {
+      return false;
     }
 
+    let backupPath = "";
+    let backupErrorMessage = "";
+
     try {
-      await resetDictionary();
-      setDraft(null);
-      setSelectedWordId(null);
-      setIsDirty(false);
-      await refreshAll();
-      setFlashMessage(createFlashMessage("success", "データを初期化しました。"));
+      try {
+        backupPath = await writeAppDataBackup();
+      } catch (error) {
+        backupErrorMessage = toErrorMessage(error);
+      }
+
+      try {
+        await resetDictionary();
+        setDraft(null);
+        setSelectedWordId(null);
+        setIsDirty(false);
+        await refreshAll();
+        setFlashMessage(
+          createFlashMessage(
+            backupErrorMessage
+              ? "info"
+              : "success",
+            backupErrorMessage
+              ? `データを初期化しました。事前バックアップは作成できませんでした: ${backupErrorMessage}`
+              : `データを初期化しました。事前バックアップ: ${backupPath}`,
+          ),
+        );
+        return true;
+      } catch (error) {
+        const resetErrorMessage = toErrorMessage(error);
+        setFlashMessage(
+          createFlashMessage(
+            "error",
+            backupErrorMessage
+              ? `データ初期化に失敗しました: ${resetErrorMessage} / バックアップ作成にも失敗しました: ${backupErrorMessage}`
+              : `データ初期化に失敗しました: ${resetErrorMessage}`,
+          ),
+        );
+        return false;
+      }
     } catch (error) {
-      setFlashMessage(createFlashMessage("error", toErrorMessage(error)));
+      setFlashMessage(
+        createFlashMessage("error", `データ初期化に失敗しました: ${toErrorMessage(error)}`),
+      );
+      return false;
     }
   }
 
