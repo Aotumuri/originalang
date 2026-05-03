@@ -11,6 +11,7 @@ type AppToolbarProps = {
   statusMessage: string;
   onSearchFiltersChange: (updater: (current: SearchFilters) => SearchFilters) => void;
   onCreateWord: () => void;
+  onOpenBulkImport: () => void;
   onOpenPartOfSpeechManager: () => void;
   onOpenCategoryManager: () => void;
   onExportJson: () => void;
@@ -31,6 +32,7 @@ export default function AppToolbar({
   statusMessage,
   onSearchFiltersChange,
   onCreateWord,
+  onOpenBulkImport,
   onOpenPartOfSpeechManager,
   onOpenCategoryManager,
   onExportJson,
@@ -91,6 +93,9 @@ export default function AppToolbar({
       <div className="toolbar-actions">
         <button type="button" onClick={onCreateWord}>
           単語追加
+        </button>
+        <button type="button" onClick={onOpenBulkImport}>
+          一括入力
         </button>
         <button type="button" onClick={onOpenPartOfSpeechManager}>
           品詞管理

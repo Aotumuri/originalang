@@ -7,10 +7,12 @@ import {
   useState,
 } from "react";
 import AppToolbar from "./components/AppToolbar";
+import BulkWordImportModal from "./components/BulkWordImportModal";
 import EntityManagerModal from "./components/EntityManagerModal";
 import ResetDictionaryModal from "./components/ResetDictionaryModal";
 import WordEditorPane from "./components/WordEditorPane";
 import WordListPane from "./components/WordListPane";
+import { parseBulkImportText, toBulkImportedWord } from "./lib/bulk-import";
 import {
   createEmptyComponent,
   extractComponentsFromEtymology,
@@ -78,10 +80,14 @@ export default function App() {
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [resetConfirmationText, setResetConfirmationText] = useState("");
   const [isResettingDictionary, setIsResettingDictionary] = useState(false);
+  const [isBulkImportModalOpen, setIsBulkImportModalOpen] = useState(false);
+  const [bulkImportText, setBulkImportText] = useState("");
+  const [isBulkImporting, setIsBulkImporting] = useState(false);
 
   const refreshTokenRef = useRef(0);
   const draftRef = useRef<WordDraft | null>(null);
   draftRef.current = draft;
+  const bulkImportResult = parseBulkImportText(bulkImportText);
 
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
@@ -458,6 +464,61 @@ export default function App() {
     setStatusMessage("");
   }
 
+  function handleOpenBulkImportModal(): void {
+    setIsBulkImportModalOpen(true);
+  }
+
+  function handleCloseBulkImportModal(): void {
+    if (isBulkImporting) {
+      return;
+    }
+    setIsBulkImportModalOpen(false);
+  }
+
+  async function handleBulkImport(): Promise<void> {
+    if (bulkImportResult.entries.length === 0) {
+      return;
+    }
+
+    const canContinue = await ensureDraftSaved();
+    if (!canContinue) {
+      return;
+    }
+
+    setIsBulkImporting(true);
+    setSaveState("saving");
+    setStatusMessage("");
+
+    try {
+      for (const entry of bulkImportResult.entries) {
+        await saveWord(toBulkImportedWord(entry));
+      }
+
+      await refreshAll();
+      await loadWordIntoEditor(bulkImportResult.entries[0].id);
+      setBulkImportText("");
+      setIsBulkImportModalOpen(false);
+      setSaveState("saved");
+      setStatusMessage("保存しました。");
+      setFlashMessage({
+        tone: bulkImportResult.invalidEntries.length > 0 ? "info" : "success",
+        text:
+          bulkImportResult.invalidEntries.length > 0
+            ? `${bulkImportResult.entries.length}件を取り込みました。${bulkImportResult.invalidEntries.length}件は解析できませんでした。`
+            : `${bulkImportResult.entries.length}件を取り込みました。`,
+      });
+    } catch (error) {
+      setSaveState("error");
+      setStatusMessage(toErrorMessage(error));
+      setFlashMessage({
+        tone: "error",
+        text: `一括入力に失敗しました: ${toErrorMessage(error)}`,
+      });
+    } finally {
+      setIsBulkImporting(false);
+    }
+  }
+
   async function handleDeleteWord(): Promise<void> {
     if (!draft) {
       return;
@@ -553,6 +614,7 @@ export default function App() {
         onCreateWord={() => void handleCreateWord()}
         onExportJson={() => void fileActions.handleExportJson()}
         onImportJson={() => void fileActions.handleImportJson()}
+        onOpenBulkImport={handleOpenBulkImportModal}
         onOpenBuildFolder={() => void fileActions.handleOpenBuildFolder(buildDirectoryPath)}
         onOpenCategoryManager={() => setManagerMode("category")}
         onOpenPartOfSpeechManager={() => setManagerMode("pos")}
@@ -617,6 +679,17 @@ export default function App() {
         onClose={() => setManagerMode(null)}
         onDelete={(entity) => taxonomyActions.handleDeleteCategory(entity)}
         onSave={(entity) => taxonomyActions.handleSaveCategory(entity)}
+      />
+
+      <BulkWordImportModal
+        invalidEntries={bulkImportResult.invalidEntries}
+        isOpen={isBulkImportModalOpen}
+        isSubmitting={isBulkImporting}
+        parsedEntries={bulkImportResult.entries}
+        rawText={bulkImportText}
+        onClose={handleCloseBulkImportModal}
+        onImport={() => void handleBulkImport()}
+        onRawTextChange={setBulkImportText}
       />
 
       <ResetDictionaryModal
