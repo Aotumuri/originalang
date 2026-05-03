@@ -1,6 +1,6 @@
 import { extractComponentsFromEtymology } from "./etymology";
 import { createId, nowIsoString } from "./utils";
-import type { WordRecord } from "../types";
+import type { ManagedEntity, WordRecord } from "../types";
 
 export type ParsedBulkWord = {
   id: string;
@@ -82,7 +82,10 @@ function parseBulkImportEntry(value: string): ParsedBulkWord | null {
   };
 }
 
-export function toBulkImportedWord(entry: ParsedBulkWord): WordRecord {
+export function toBulkImportedWord(
+  entry: ParsedBulkWord,
+  partOfSpeech?: Pick<ManagedEntity, "id" | "name"> | null,
+): WordRecord {
   const timestamp = nowIsoString();
   const components = extractComponentsFromEtymology(entry.id, entry.etymology);
 
@@ -95,8 +98,8 @@ export function toBulkImportedWord(entry: ParsedBulkWord): WordRecord {
     etymology: entry.etymology,
     origin: "",
     notes: "",
-    partOfSpeechId: null,
-    partOfSpeechName: "",
+    partOfSpeechId: partOfSpeech?.id ?? null,
+    partOfSpeechName: partOfSpeech?.name ?? "",
     categoryIds: [],
     categoryNames: [],
     examples: [],

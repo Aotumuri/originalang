@@ -82,6 +82,7 @@ export default function App() {
   const [isResettingDictionary, setIsResettingDictionary] = useState(false);
   const [isBulkImportModalOpen, setIsBulkImportModalOpen] = useState(false);
   const [bulkImportText, setBulkImportText] = useState("");
+  const [bulkImportPartOfSpeechId, setBulkImportPartOfSpeechId] = useState("");
   const [isBulkImporting, setIsBulkImporting] = useState(false);
 
   const refreshTokenRef = useRef(0);
@@ -497,13 +498,17 @@ export default function App() {
     setStatusMessage("");
 
     try {
+      const bulkImportPartOfSpeech =
+        partsOfSpeech.find((item) => item.id === bulkImportPartOfSpeechId) ?? null;
+
       for (const entry of bulkImportResult.entries) {
-        await saveWord(toBulkImportedWord(entry));
+        await saveWord(toBulkImportedWord(entry, bulkImportPartOfSpeech));
       }
 
       await refreshAll();
       await loadWordIntoEditor(bulkImportResult.entries[0].id);
       setBulkImportText("");
+      setBulkImportPartOfSpeechId("");
       setIsBulkImportModalOpen(false);
       setSaveState("saved");
       setStatusMessage("保存しました。");
@@ -693,10 +698,13 @@ export default function App() {
         invalidEntries={bulkImportResult.invalidEntries}
         isOpen={isBulkImportModalOpen}
         isSubmitting={isBulkImporting}
+        partOfSpeechId={bulkImportPartOfSpeechId}
         parsedEntries={bulkImportResult.entries}
+        partsOfSpeech={partsOfSpeech}
         rawText={bulkImportText}
         onClose={handleCloseBulkImportModal}
         onImport={() => void handleBulkImport()}
+        onPartOfSpeechChange={setBulkImportPartOfSpeechId}
         onRawTextChange={setBulkImportText}
       />
 

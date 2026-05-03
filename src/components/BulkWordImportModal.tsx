@@ -1,12 +1,16 @@
 import type { ParsedBulkWord } from "../lib/bulk-import";
+import type { ManagedEntity } from "../types";
 
 type BulkWordImportModalProps = {
   isOpen: boolean;
   rawText: string;
   parsedEntries: ParsedBulkWord[];
   invalidEntries: string[];
+  partsOfSpeech: ManagedEntity[];
+  partOfSpeechId: string;
   isSubmitting: boolean;
   onRawTextChange: (value: string) => void;
+  onPartOfSpeechChange: (value: string) => void;
   onClose: () => void;
   onImport: () => void;
 };
@@ -16,8 +20,11 @@ export default function BulkWordImportModal({
   rawText,
   parsedEntries,
   invalidEntries,
+  partsOfSpeech,
+  partOfSpeechId,
   isSubmitting,
   onRawTextChange,
+  onPartOfSpeechChange,
   onClose,
   onImport,
 }: BulkWordImportModalProps) {
@@ -76,6 +83,22 @@ export default function BulkWordImportModal({
               </div>
             </div>
           ) : null}
+
+          <label className="full-width">
+            <span>取り込み時の品詞</span>
+            <select
+              value={partOfSpeechId}
+              onChange={(event) => onPartOfSpeechChange(event.target.value)}
+              disabled={isSubmitting}
+            >
+              <option value="">未設定</option>
+              {partsOfSpeech.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
         <div className="modal-actions">
