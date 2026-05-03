@@ -4,6 +4,7 @@ import { APP_DB_NAME, INITIAL_CATEGORIES, INITIAL_PARTS_OF_SPEECH } from "../con
 import { nowIsoString, toSqliteUrl } from "./utils";
 
 let databasePromise: Promise<Database> | null = null;
+let databaseTaskQueue: Promise<void> = Promise.resolve();
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS parts_of_speech (
@@ -86,6 +87,7 @@ async function initializeDatabase(db: Database): Promise<void> {
   await db.execute("PRAGMA foreign_keys = ON");
   await db.execute("PRAGMA journal_mode = WAL");
   await db.execute("PRAGMA synchronous = NORMAL");
+  await db.execute("PRAGMA busy_timeout = 5000");
 
   for (const statement of SCHEMA_STATEMENTS) {
     await db.execute(statement);
@@ -109,4 +111,18 @@ export async function getDatabase(): Promise<Database> {
   }
 
   return databasePromise;
+}
+
+export async function withDatabase<T>(work: (db: Database) => Promise<T>): Promise<T> {
+  const task = databaseTaskQueue.then(
+    async () => work(await getDatabase()),
+    async () => work(await getDatabase()),
+  );
+
+  databaseTaskQueue = task.then(
+    () => undefined,
+    () => undefined,
+  );
+
+  return task;
 }

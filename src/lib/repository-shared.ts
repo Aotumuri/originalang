@@ -7,7 +7,7 @@ import type {
   WordListItem,
   WordRecord,
 } from "../types";
-import { getDatabase } from "./db";
+import { withDatabase } from "./db";
 import { createId, nowIsoString, toOptionalString } from "./utils";
 
 export type DbManagedRow = {
@@ -164,21 +164,22 @@ export function normalizeComponents(
 }
 
 export async function runTransaction<T>(work: (db: Database) => Promise<T>): Promise<T> {
-  const db = await getDatabase();
-  await db.execute("BEGIN");
+  return withDatabase(async (db) => {
+    await db.execute("BEGIN IMMEDIATE");
 
-  try {
-    const result = await work(db);
-    await db.execute("COMMIT");
-    return result;
-  } catch (error) {
     try {
-      await db.execute("ROLLBACK");
-    } catch {
-      // Ignore rollback errors and bubble the original one.
+      const result = await work(db);
+      await db.execute("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        await db.execute("ROLLBACK");
+      } catch {
+        // Ignore rollback errors and bubble the original one.
+      }
+      throw error;
     }
-    throw error;
-  }
+  });
 }
 
 export function assertDictionaryImport(value: unknown): asserts value is DictionaryExport {
