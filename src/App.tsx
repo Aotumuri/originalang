@@ -22,6 +22,7 @@ import {
   findDuplicateWords,
   getDictionaryExport,
   getWord,
+  listAllWordReferences,
   listCategories,
   listPartsOfSpeech,
   listWords,
@@ -34,9 +35,12 @@ import {
 } from "./lib/repository";
 import {
   backupFileName,
+  createEmptyComponent,
   createEmptyExample,
   createEmptyWordDraft,
+  extractComponentsFromEtymology,
   formatDateTime,
+  formatComponentsAsEtymology,
   removeWordListItem,
   sortWordList,
   toWordListItem,
@@ -49,6 +53,7 @@ import type {
   SearchFilters,
   WordDraft,
   WordListItem,
+  WordReference,
   WordRecord,
 } from "./types";
 
@@ -102,6 +107,7 @@ export default function App() {
   const deferredQuery = useDeferredValue(searchFilters.query);
 
   const [words, setWords] = useState<WordListItem[]>([]);
+  const [wordReferences, setWordReferences] = useState<WordReference[]>([]);
   const [partsOfSpeech, setPartsOfSpeech] = useState<ManagedEntity[]>([]);
   const [categories, setCategories] = useState<ManagedEntity[]>([]);
   const [selectedWordId, setSelectedWordId] = useState<string | null>(null);
@@ -145,12 +151,14 @@ export default function App() {
     const loadInitialData = async () => {
       try {
         setIsLoading(true);
-        const [nextPartsOfSpeech, nextCategories] = await Promise.all([
+        const [nextPartsOfSpeech, nextCategories, nextWordReferences] = await Promise.all([
           listPartsOfSpeech(),
           listCategories(),
+          listAllWordReferences(),
         ]);
         setPartsOfSpeech(nextPartsOfSpeech);
         setCategories(nextCategories);
+        setWordReferences(nextWordReferences);
       } catch (error) {
         setFlashMessage({
           tone: "error",
@@ -240,6 +248,11 @@ export default function App() {
     setCategories(nextCategories);
   }
 
+  async function refreshWordReferences(): Promise<void> {
+    const nextWordReferences = await listAllWordReferences();
+    setWordReferences(nextWordReferences);
+  }
+
   async function refreshWordList(): Promise<void> {
     const nextWords = await listWords({
       ...searchFilters,
@@ -249,7 +262,7 @@ export default function App() {
   }
 
   async function refreshAll(): Promise<void> {
-    await Promise.all([refreshTaxonomies(), refreshWordList()]);
+    await Promise.all([refreshTaxonomies(), refreshWordList(), refreshWordReferences()]);
   }
 
   async function loadWordIntoEditor(wordId: string): Promise<void> {
@@ -269,6 +282,31 @@ export default function App() {
       return updater(current);
     });
     setIsDirty(true);
+  }
+
+  function syncComponentsFromEtymology(): void {
+    updateDraft((current) => ({
+      ...current,
+      components: extractComponentsFromEtymology(current.id, current.etymology, current.components),
+    }));
+  }
+
+  function updateComponentList(
+    updater: (components: WordDraft["components"], current: WordDraft) => WordDraft["components"],
+  ): void {
+    updateDraft((current) => {
+      const nextComponents = updater(current.components, current).map((component, index) => ({
+        ...component,
+        wordId: current.id,
+        sortOrder: index,
+      }));
+
+      return {
+        ...current,
+        components: nextComponents,
+        etymology: formatComponentsAsEtymology(nextComponents),
+      };
+    });
   }
 
   async function persistCurrentDraft(): Promise<boolean> {
@@ -302,6 +340,7 @@ export default function App() {
       setStatusMessage("保存しました。");
       await refreshTaxonomies();
       await refreshWordList();
+      await refreshWordReferences();
       return true;
     } catch (error) {
       setSaveState("error");
@@ -383,6 +422,7 @@ export default function App() {
       });
       await refreshTaxonomies();
       await refreshWordList();
+      await refreshWordReferences();
     } catch (error) {
       setFlashMessage({
         tone: "error",
@@ -923,6 +963,132 @@ export default function App() {
                     }
                   />
                 </label>
+
+                <div className="full-width">
+                  <div className="subsection-header">
+                    <span>構成要素</span>
+                    <div className="inline-actions">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => syncComponentsFromEtymology()}
+                      >
+                        構成欄から抽出
+                      </button>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() =>
+                          updateComponentList((components, current) => [
+                            ...components,
+                            createEmptyComponent(current.id, components.length),
+                          ])
+                        }
+                      >
+                        要素追加
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="examples-list">
+                    {draft.components.length === 0 ? (
+                      <p className="empty-state">
+                        構成欄に `kar（固い・高い）+ ρа（広がる・存在）` のように書いて「構成欄から抽出」を押すか、手動で追加してください。
+                      </p>
+                    ) : null}
+
+                    {draft.components.map((component) => (
+                      <div className="example-card" key={component.id}>
+                        <label>
+                          <span>要素表記</span>
+                          <input
+                            value={component.text}
+                            onChange={(event) =>
+                              updateComponentList((components) =>
+                                components.map((item) =>
+                                  item.id === component.id
+                                    ? { ...item, text: event.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+
+                        <label>
+                          <span>要素の意味</span>
+                          <input
+                            value={component.meaning}
+                            onChange={(event) =>
+                              updateComponentList((components) =>
+                                components.map((item) =>
+                                  item.id === component.id
+                                    ? { ...item, meaning: event.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+
+                        <label>
+                          <span>リンク先単語</span>
+                          <select
+                            value={component.linkedWordId ?? ""}
+                            onChange={(event) =>
+                              updateComponentList((components) =>
+                                components.map((item) =>
+                                  item.id === component.id
+                                    ? {
+                                        ...item,
+                                        linkedWordId: event.target.value || null,
+                                      }
+                                    : item,
+                                ),
+                              )
+                            }
+                          >
+                            <option value="">未設定</option>
+                            {wordReferences
+                              .filter((reference) => reference.id !== draft.id)
+                              .map((reference) => (
+                                <option key={reference.id} value={reference.id}>
+                                  {reference.text}
+                                  {reference.japanese ? ` / ${reference.japanese}` : ""}
+                                </option>
+                              ))}
+                          </select>
+                        </label>
+
+                        <div className="manager-actions">
+                          <button
+                            className="secondary-button"
+                            disabled={!component.linkedWordId}
+                            type="button"
+                            onClick={() =>
+                              component.linkedWordId
+                                ? void handleSelectWord(component.linkedWordId)
+                                : undefined
+                            }
+                          >
+                            単語を開く
+                          </button>
+                          <button
+                            className="danger-button"
+                            type="button"
+                            onClick={() =>
+                              updateComponentList((components) =>
+                                components.filter((item) => item.id !== component.id),
+                              )
+                            }
+                          >
+                            要素削除
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
                 <label className="full-width">
                   <span>意味</span>

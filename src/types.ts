@@ -33,6 +33,12 @@ export type WordComponentRecord = {
   sortOrder: number;
 };
 
+export type WordReference = {
+  id: string;
+  text: string;
+  japanese: string;
+};
+
 export type WordRecord = {
   id: string;
   text: string;

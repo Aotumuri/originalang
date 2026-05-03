@@ -216,6 +216,7 @@ textarea {
 .word-row-top,
 .word-row-meta,
 .subsection-header,
+.inline-actions,
 .editor-actions,
 .manager-actions,
 .modal-header {
@@ -230,6 +231,10 @@ textarea {
 .empty-state,
 .empty-editor p {
   color: #64748b;
+}
+
+.inline-actions {
+  justify-content: flex-end;
 }
 
 .form-grid {
@@ -306,6 +311,11 @@ textarea {
 
 .secondary-button {
   background: #f8fafc;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .danger-button {

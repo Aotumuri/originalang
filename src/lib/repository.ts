@@ -8,11 +8,17 @@ import type {
   ManagedEntity,
   SearchFilters,
   WordComponentRecord,
+  WordReference,
   WordListItem,
   WordRecord,
 } from "../types";
 import { getDatabase } from "./db";
-import { createId, nowIsoString, toOptionalString } from "./utils";
+import {
+  createId,
+  extractComponentsFromEtymology,
+  nowIsoString,
+  toOptionalString,
+} from "./utils";
 
 type DbManagedRow = {
   id: string;
@@ -70,6 +76,12 @@ type DbWordListRow = {
   part_of_speech_name: string | null;
   category_names: string | null;
   updated_at: string;
+};
+
+type DbWordReferenceRow = {
+  id: string;
+  text: string;
+  japanese: string | null;
 };
 
 type DbDuplicateRow = {
@@ -145,19 +157,20 @@ function normalizeExamples(wordId: string, examples: WordRecord["examples"]) {
     .filter((example) => example.text.length > 0);
 }
 
-function extractComponents(wordId: string, etymology: string): WordComponentRecord[] {
-  return etymology
-    .split("+")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((text, index) => ({
-      id: createId("component"),
+function normalizeComponents(
+  wordId: string,
+  components: WordComponentRecord[],
+): WordComponentRecord[] {
+  return components
+    .map((component, index) => ({
+      id: component.id || createId("component"),
       wordId,
-      text,
-      meaning: "",
-      linkedWordId: null,
+      text: component.text.trim(),
+      meaning: toOptionalString(component.meaning),
+      linkedWordId: component.linkedWordId || null,
       sortOrder: index,
-    }));
+    }))
+    .filter((component) => component.text.length > 0);
 }
 
 async function runTransaction<T>(work: (db: Database) => Promise<T>): Promise<T> {
@@ -259,6 +272,21 @@ export async function listWords(filters: SearchFilters): Promise<WordListItem[]>
 export async function getWord(wordId: string): Promise<WordRecord | null> {
   const snapshot = await getDictionarySnapshot();
   return snapshot.words.find((word) => word.id === wordId) ?? null;
+}
+
+export async function listAllWordReferences(): Promise<WordReference[]> {
+  const db = await getDatabase();
+  const rows = await db.select<DbWordReferenceRow[]>(
+    `SELECT id, text, japanese
+     FROM words
+     ORDER BY text ASC, updated_at DESC`,
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    text: row.text,
+    japanese: row.japanese ?? "",
+  }));
 }
 
 export async function findDuplicateWords(
@@ -400,7 +428,10 @@ export async function saveWord(word: WordRecord): Promise<WordRecord> {
 
   const timestamp = nowIsoString();
   const examples = normalizeExamples(word.id, word.examples);
-  const components = extractComponents(word.id, word.etymology);
+  const components =
+    word.components.length > 0
+      ? normalizeComponents(word.id, word.components)
+      : extractComponentsFromEtymology(word.id, word.etymology);
 
   const normalized: WordRecord = {
     ...word,
