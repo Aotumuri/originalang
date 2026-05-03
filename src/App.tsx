@@ -196,13 +196,6 @@ export default function App() {
     });
   }, [partsOfSpeech, categories]);
 
-  useEffect(() => {
-    if (draft || words.length === 0 || selectedWordId) {
-      return;
-    }
-    void loadWordIntoEditor(words[0].id);
-  }, [draft, selectedWordId, words]);
-
   async function refreshTaxonomies(): Promise<void> {
     const [nextPartsOfSpeech, nextCategories] = await Promise.all([
       listPartsOfSpeech(),
@@ -450,6 +443,20 @@ export default function App() {
     await loadWordIntoEditor(wordId);
   }
 
+  async function handleClearSelection(): Promise<void> {
+    const canContinue = await ensureDraftSaved();
+    if (!canContinue) {
+      return;
+    }
+
+    setDraft(null);
+    setSelectedWordId(null);
+    setIsDirty(false);
+    setSaveState("saved");
+    setStatusMessage("");
+    setDuplicateWords([]);
+  }
+
   async function handleCreateWord(): Promise<void> {
     const canContinue = await ensureDraftSaved();
     if (!canContinue) {
@@ -634,6 +641,7 @@ export default function App() {
       <main className="content-grid">
         <WordListPane
           isLoading={isLoading}
+          onClearSelection={() => void handleClearSelection()}
           onSelectWord={(wordId) => void handleSelectWord(wordId)}
           selectedWordId={selectedWordId}
           words={renderedWords}

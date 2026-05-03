@@ -6,6 +6,7 @@ type WordListPaneProps = {
   selectedWordId: string | null;
   isLoading: boolean;
   onSelectWord: (wordId: string) => void;
+  onClearSelection: () => void;
 };
 
 export default function WordListPane({
@@ -13,12 +14,20 @@ export default function WordListPane({
   selectedWordId,
   isLoading,
   onSelectWord,
+  onClearSelection,
 }: WordListPaneProps) {
   return (
     <aside className="word-list-panel">
       <div className="panel-heading">
         <h2>単語一覧</h2>
-        <span>{words.length} 件</span>
+        <div className="inline-actions">
+          <span>{words.length} 件</span>
+          {selectedWordId ? (
+            <button className="secondary-button" type="button" onClick={onClearSelection}>
+              選択解除
+            </button>
+          ) : null}
+        </div>
       </div>
       <div className="word-list">
         {isLoading ? <p className="empty-state">読み込み中...</p> : null}
