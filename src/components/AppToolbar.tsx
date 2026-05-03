@@ -47,7 +47,7 @@ export default function AppToolbar({
       <div className="toolbar-main">
         <input
           className="search-input"
-          placeholder="検索"
+          placeholder="意味を検索"
           value={searchFilters.query}
           onChange={(event) =>
             onSearchFiltersChange((current) => ({

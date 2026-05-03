@@ -93,6 +93,11 @@ async function initializeDatabase(db: Database): Promise<void> {
     await db.execute(statement);
   }
 
+  const wordColumns = await db.select<{ name: string }[]>(`PRAGMA table_info(words)`);
+  if (!wordColumns.some((column) => column.name === "meaning_embedding")) {
+    await db.execute(`ALTER TABLE words ADD COLUMN meaning_embedding TEXT`);
+  }
+
   await seedInitialData(db);
 }
 

@@ -28,6 +28,7 @@ export type DbWordRow = {
   etymology: string | null;
   origin: string | null;
   notes: string | null;
+  meaning_embedding?: string | null;
   part_of_speech_id: string | null;
   created_at: string;
   updated_at: string;
@@ -62,6 +63,11 @@ export type DbWordListRow = {
   text: string;
   pronunciation: string | null;
   japanese: string | null;
+  meaning?: string | null;
+  etymology?: string | null;
+  origin?: string | null;
+  notes?: string | null;
+  meaning_embedding?: string | null;
   part_of_speech_id: string | null;
   part_of_speech_name: string | null;
   category_names: string | null;

@@ -8,6 +8,14 @@ import type {
 } from "../types";
 import { withDatabase } from "./db";
 import {
+  buildWordSearchText,
+  cosineSimilarity,
+  createPassageEmbedding,
+  createQueryEmbedding,
+  parseEmbedding,
+  serializeEmbedding,
+} from "./semantic-search";
+import {
   DbComponentRow,
   DbDuplicateRow,
   DbExampleRow,
@@ -30,6 +38,11 @@ export async function listWords(filters: SearchFilters): Promise<WordListItem[]>
         w.text,
         w.pronunciation,
         w.japanese,
+        w.meaning,
+        w.etymology,
+        w.origin,
+        w.notes,
+        w.meaning_embedding,
         w.part_of_speech_id,
         p.name AS part_of_speech_name,
         GROUP_CONCAT(DISTINCT c.name) AS category_names,
@@ -39,31 +52,121 @@ export async function listWords(filters: SearchFilters): Promise<WordListItem[]>
       LEFT JOIN word_categories wc ON wc.word_id = w.id
       LEFT JOIN categories c ON c.id = wc.category_id
       WHERE
-        ($1 = '' OR
-          w.text LIKE '%' || $1 || '%' OR
-          COALESCE(w.pronunciation, '') LIKE '%' || $1 || '%' OR
-          COALESCE(w.japanese, '') LIKE '%' || $1 || '%' OR
-          COALESCE(w.meaning, '') LIKE '%' || $1 || '%' OR
-          COALESCE(w.etymology, '') LIKE '%' || $1 || '%' OR
-          COALESCE(w.origin, '') LIKE '%' || $1 || '%' OR
-          COALESCE(w.notes, '') LIKE '%' || $1 || '%'
-        )
-        AND ($2 = '' OR COALESCE(w.part_of_speech_id, '') = $2)
+        ($1 = '' OR COALESCE(w.part_of_speech_id, '') = $1)
         AND (
-          $3 = '' OR EXISTS (
+          $2 = '' OR EXISTS (
             SELECT 1
             FROM word_categories filtered_wc
             WHERE filtered_wc.word_id = w.id
-              AND filtered_wc.category_id = $3
+              AND filtered_wc.category_id = $2
           )
         )
       GROUP BY w.id, p.name
       ORDER BY w.updated_at DESC, w.text ASC`,
-      [queryText, filters.partOfSpeechId, filters.categoryId],
+      [filters.partOfSpeechId, filters.categoryId],
     ),
   );
 
-  return rows.map(mapWordListRow);
+  if (!queryText) {
+    return rows.map(mapWordListRow);
+  }
+
+  const queryEmbedding = await createQueryEmbedding(queryText);
+  if (!queryEmbedding) {
+    return rows.map(mapWordListRow);
+  }
+
+  const rowsWithEmbeddings = await ensureWordEmbeddings(rows);
+  const scoredRows = rowsWithEmbeddings.map((row) => {
+    const embedding = parseEmbedding(row.meaning_embedding);
+    const semanticScore = embedding ? cosineSimilarity(queryEmbedding, embedding) : Number.NEGATIVE_INFINITY;
+    const lexicalBoost = getLexicalBoost(row, queryText);
+
+    return {
+      row,
+      semanticScore,
+      lexicalBoost,
+      combinedScore: semanticScore + lexicalBoost,
+    };
+  });
+
+  scoredRows.sort((left, right) => {
+    return (
+      right.combinedScore - left.combinedScore ||
+      right.semanticScore - left.semanticScore ||
+      right.lexicalBoost - left.lexicalBoost ||
+      right.row.updated_at.localeCompare(left.row.updated_at) ||
+      left.row.text.localeCompare(right.row.text, "ja")
+    );
+  });
+
+  return scoredRows.map(({ row }) => mapWordListRow(row));
+}
+
+async function ensureWordEmbeddings(rows: DbWordListRow[]): Promise<DbWordListRow[]> {
+  const nextRows = [...rows];
+
+  for (let index = 0; index < nextRows.length; index += 1) {
+    const row = nextRows[index];
+    if (parseEmbedding(row.meaning_embedding)) {
+      continue;
+    }
+
+    const searchText = buildWordSearchText({
+      text: row.text,
+      pronunciation: row.pronunciation,
+      japanese: row.japanese,
+      meaning: row.meaning,
+      etymology: row.etymology,
+      origin: row.origin,
+      notes: row.notes,
+      partOfSpeechName: row.part_of_speech_name,
+      categoryNames: row.category_names ? row.category_names.split(",").filter(Boolean) : [],
+    });
+    const meaningEmbedding = serializeEmbedding(await createPassageEmbedding(searchText));
+
+    await withDatabase((db) =>
+      db.execute(`UPDATE words SET meaning_embedding = $1 WHERE id = $2`, [meaningEmbedding, row.id]),
+    );
+
+    nextRows[index] = {
+      ...row,
+      meaning_embedding: meaningEmbedding,
+    };
+  }
+
+  return nextRows;
+}
+
+function getLexicalBoost(row: DbWordListRow, queryText: string): number {
+  const normalizedQuery = queryText.trim().toLocaleLowerCase("ja");
+  if (!normalizedQuery) {
+    return 0;
+  }
+
+  const haystacks = [
+    row.text,
+    row.pronunciation ?? "",
+    row.japanese ?? "",
+    row.meaning ?? "",
+    row.etymology ?? "",
+    row.origin ?? "",
+    row.notes ?? "",
+    row.part_of_speech_name ?? "",
+    row.category_names ?? "",
+  ]
+    .map((value) => value.toLocaleLowerCase("ja"))
+    .filter(Boolean);
+
+  if (haystacks.some((value) => value === normalizedQuery)) {
+    return 0.2;
+  }
+
+  if (haystacks.some((value) => value.includes(normalizedQuery))) {
+    return 0.1;
+  }
+
+  return 0;
 }
 
 export async function getWord(wordId: string): Promise<WordRecord | null> {

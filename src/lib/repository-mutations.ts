@@ -2,6 +2,11 @@ import { INITIAL_CATEGORIES, INITIAL_PARTS_OF_SPEECH } from "../constants";
 import { extractComponentsFromEtymology } from "./etymology";
 import { listCategories, listPartsOfSpeech } from "./repository-queries";
 import {
+  buildWordSearchText,
+  createPassageEmbedding,
+  serializeEmbedding,
+} from "./semantic-search";
+import {
   getPersistedManagedEntity,
   normalizeComponents,
   normalizeExamples,
@@ -100,6 +105,8 @@ export async function saveWord(word: WordRecord): Promise<WordRecord> {
     components,
     updatedAt: timestamp,
   };
+  const searchText = buildWordSearchText(normalized);
+  const meaningEmbedding = serializeEmbedding(await createPassageEmbedding(searchText));
 
   await runTransaction(async (db) => {
     await db.execute(
@@ -112,10 +119,11 @@ export async function saveWord(word: WordRecord): Promise<WordRecord> {
         etymology,
         origin,
         notes,
+        meaning_embedding,
         part_of_speech_id,
         created_at,
         updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       ON CONFLICT(id) DO UPDATE SET
         text = excluded.text,
         pronunciation = excluded.pronunciation,
@@ -124,6 +132,7 @@ export async function saveWord(word: WordRecord): Promise<WordRecord> {
         etymology = excluded.etymology,
         origin = excluded.origin,
         notes = excluded.notes,
+        meaning_embedding = excluded.meaning_embedding,
         part_of_speech_id = excluded.part_of_speech_id,
         updated_at = excluded.updated_at`,
       [
@@ -135,6 +144,7 @@ export async function saveWord(word: WordRecord): Promise<WordRecord> {
         normalized.etymology,
         normalized.origin,
         normalized.notes,
+        meaningEmbedding,
         normalized.partOfSpeechId,
         normalized.createdAt,
         normalized.updatedAt,
