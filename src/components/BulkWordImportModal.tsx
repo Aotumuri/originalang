@@ -44,13 +44,19 @@ export default function BulkWordImportModal({
 
         <div className="modal-body">
           <p className="modal-help-text">
-            `単語（読み）　日本語訳　構成` の形で貼り付けます。複数行でも、1 行に連続して並べても扱えます。
+            `単語（読み）　日本語訳　構成` または `言語表記：...` から始まるラベル付き形式で貼り付けます。
           </p>
           <textarea
             className="bulk-input-textarea"
             rows={10}
             value={rawText}
-            placeholder="例: ∂yaлэ（ダヤレ）　過去　∂ya（痕跡）+ лэ（保持）"
+            placeholder={`例:
+言語表記：λдrazи
+発音　　：/ˈla.dra.zi/（ラドラジ）
+日本語訳：年
+構成　　：λ（広がり・循環）+ дrazи（日）
+意味　　：多くの日が巡り、再び同じ位置へ戻る長期循環の単位。
+由来　　：時間が「広く展開し、包み直される」感覚をλで表現。`}
             onChange={(event) => onRawTextChange(event.target.value)}
             disabled={isSubmitting}
           />
@@ -66,8 +72,10 @@ export default function BulkWordImportModal({
                 <div className="bulk-preview-item" key={entry.id}>
                   <strong>{entry.text}</strong>
                   <span>{entry.pronunciation || "発音なし"}</span>
-                  <span>{entry.japanese}</span>
+                  <span>{entry.japanese || "日本語訳なし"}</span>
                   <span>{entry.etymology || "構成なし"}</span>
+                  {entry.meaning ? <span>{entry.meaning}</span> : null}
+                  {entry.origin ? <span>{entry.origin}</span> : null}
                 </div>
               ))}
             </div>

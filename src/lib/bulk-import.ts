@@ -8,6 +8,9 @@ export type ParsedBulkWord = {
   pronunciation: string;
   japanese: string;
   etymology: string;
+  meaning: string;
+  origin: string;
+  notes: string;
   source: string;
 };
 
@@ -42,6 +45,10 @@ export function parseBulkImportText(raw: string): BulkImportParseResult {
 }
 
 function splitBulkImportEntries(value: string): string[] {
+  if (hasLabeledBulkEntries(value)) {
+    return splitLabeledBulkImportEntries(value);
+  }
+
   const lines = value
     .split("\n")
     .map((line) => line.trim())
@@ -58,6 +65,11 @@ function splitBulkImportEntries(value: string): string[] {
 }
 
 function parseBulkImportEntry(value: string): ParsedBulkWord | null {
+  const labeledEntry = parseLabeledBulkImportEntry(value);
+  if (labeledEntry) {
+    return labeledEntry;
+  }
+
   const match = value.match(/^(.*?)\s*(?:（([^）]+)）|\(([^)]+)\))(.*)$/);
   if (!match) {
     return null;
@@ -78,8 +90,121 @@ function parseBulkImportEntry(value: string): ParsedBulkWord | null {
     pronunciation,
     japanese: columns[0],
     etymology: columns.slice(1).join(" "),
+    meaning: "",
+    origin: "",
+    notes: "",
     source: value.trim(),
   };
+}
+
+function hasLabeledBulkEntries(value: string): boolean {
+  return value
+    .split("\n")
+    .some((line) => normalizeLabel(line.split(/[：:]/, 1)[0] ?? "") === "言語表記");
+}
+
+function splitLabeledBulkImportEntries(value: string): string[] {
+  const entries: string[] = [];
+  const current: string[] = [];
+
+  for (const line of value.split("\n")) {
+    const trimmed = line.trim();
+    const isEntryStart = normalizeLabel(trimmed.split(/[：:]/, 1)[0] ?? "") === "言語表記";
+
+    if (isEntryStart && current.some((item) => item.trim())) {
+      entries.push(current.join("\n").trim());
+      current.length = 0;
+    }
+
+    if (!trimmed && current.some((item) => item.trim())) {
+      entries.push(current.join("\n").trim());
+      current.length = 0;
+      continue;
+    }
+
+    current.push(line);
+  }
+
+  if (current.some((item) => item.trim())) {
+    entries.push(current.join("\n").trim());
+  }
+
+  return entries.filter(Boolean);
+}
+
+function parseLabeledBulkImportEntry(value: string): ParsedBulkWord | null {
+  const fields: Partial<Record<keyof Omit<ParsedBulkWord, "id" | "source">, string>> = {};
+  let activeField: keyof typeof fields | null = null;
+
+  for (const line of value.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    const match = trimmed.match(/^([^：:]+)[：:]\s*(.*)$/);
+    if (match) {
+      const field = bulkLabelToField(match[1]);
+      if (!field) {
+        activeField = null;
+        continue;
+      }
+
+      fields[field] = match[2].trim();
+      activeField = field;
+      continue;
+    }
+
+    if (activeField) {
+      fields[activeField] = [fields[activeField], trimmed].filter(Boolean).join("\n");
+    }
+  }
+
+  const text = fields.text?.trim() ?? "";
+  if (!text) {
+    return null;
+  }
+
+  return {
+    id: createId("word"),
+    text,
+    pronunciation: fields.pronunciation?.trim() ?? "",
+    japanese: fields.japanese?.trim() ?? "",
+    etymology: fields.etymology?.trim() ?? "",
+    meaning: fields.meaning?.trim() ?? "",
+    origin: fields.origin?.trim() ?? "",
+    notes: fields.notes?.trim() ?? "",
+    source: value.trim(),
+  };
+}
+
+function bulkLabelToField(label: string): keyof Omit<ParsedBulkWord, "id" | "source"> | null {
+  switch (normalizeLabel(label)) {
+    case "言語表記":
+    case "単語":
+      return "text";
+    case "発音":
+    case "読み":
+      return "pronunciation";
+    case "日本語訳":
+    case "訳":
+      return "japanese";
+    case "構成":
+      return "etymology";
+    case "意味":
+      return "meaning";
+    case "由来":
+      return "origin";
+    case "メモ":
+    case "備考":
+      return "notes";
+    default:
+      return null;
+  }
+}
+
+function normalizeLabel(label: string): string {
+  return label.replace(/\s/g, "").trim();
 }
 
 export function toBulkImportedWord(
@@ -94,10 +219,10 @@ export function toBulkImportedWord(
     text: entry.text,
     pronunciation: entry.pronunciation,
     japanese: entry.japanese,
-    meaning: "",
+    meaning: entry.meaning,
     etymology: entry.etymology,
-    origin: "",
-    notes: "",
+    origin: entry.origin,
+    notes: entry.notes,
     partOfSpeechId: partOfSpeech?.id ?? null,
     partOfSpeechName: partOfSpeech?.name ?? "",
     categoryIds: [],
