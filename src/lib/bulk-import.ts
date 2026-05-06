@@ -144,14 +144,17 @@ function parseLabeledBulkImportEntry(value: string): ParsedBulkWord | null {
 
     const match = trimmed.match(/^([^：:]+)[：:]\s*(.*)$/);
     if (match) {
-      const field = bulkLabelToField(match[1]);
-      if (!field) {
+      const resolvedLabel = resolveBulkLabel(match[1]);
+      if (!resolvedLabel) {
         activeField = null;
         continue;
       }
 
-      fields[field] = match[2].trim();
-      activeField = field;
+      fields[resolvedLabel.field] = appendBulkFieldValue(
+        fields[resolvedLabel.field],
+        formatBulkFieldValue(match[2].trim(), resolvedLabel.prefix),
+      );
+      activeField = resolvedLabel.field;
       continue;
     }
 
@@ -178,29 +181,53 @@ function parseLabeledBulkImportEntry(value: string): ParsedBulkWord | null {
   };
 }
 
-function bulkLabelToField(label: string): keyof Omit<ParsedBulkWord, "id" | "source"> | null {
+type BulkLabelResolution = {
+  field: keyof Omit<ParsedBulkWord, "id" | "source">;
+  prefix?: string;
+};
+
+function resolveBulkLabel(label: string): BulkLabelResolution | null {
   switch (normalizeLabel(label)) {
     case "言語表記":
     case "単語":
-      return "text";
+      return { field: "text" };
     case "発音":
     case "読み":
-      return "pronunciation";
+      return { field: "pronunciation" };
     case "日本語訳":
     case "訳":
-      return "japanese";
+      return { field: "japanese" };
     case "構成":
-      return "etymology";
+      return { field: "etymology" };
     case "意味":
-      return "meaning";
+      return { field: "meaning" };
     case "由来":
-      return "origin";
+      return { field: "origin" };
+    case "省略語":
+    case "略語":
+      return { field: "notes", prefix: "省略語" };
     case "メモ":
     case "備考":
-      return "notes";
+      return { field: "notes" };
     default:
       return null;
   }
+}
+
+function appendBulkFieldValue(current: string | undefined, next: string): string {
+  if (!next) {
+    return current ?? "";
+  }
+
+  return [current, next].filter(Boolean).join("\n");
+}
+
+function formatBulkFieldValue(value: string, prefix?: string): string {
+  if (!prefix || !value) {
+    return value;
+  }
+
+  return `${prefix}: ${value}`;
 }
 
 function normalizeLabel(label: string): string {

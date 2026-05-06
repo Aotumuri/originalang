@@ -55,6 +55,7 @@ export default function BulkWordImportModal({
 発音　　：/ˈla.dra.zi/（ラドラジ）
 日本語訳：年
 構成　　：λ（広がり・循環）+ дrazи（日）
+省略語　：λaд（ラド）
 意味　　：多くの日が巡り、再び同じ位置へ戻る長期循環の単位。
 由来　　：時間が「広く展開し、包み直される」感覚をλで表現。`}
             onChange={(event) => onRawTextChange(event.target.value)}
