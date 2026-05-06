@@ -20,6 +20,7 @@ import {
   DbDuplicateRow,
   DbExampleRow,
   DbManagedRow,
+  DbTranslationRow,
   DbWordCategoryRow,
   DbWordListRow,
   DbWordReferenceRow,
@@ -28,6 +29,7 @@ import {
   mapWordListRow,
   mapWordRecord,
 } from "./repository-shared";
+import { joinJapaneseTranslations, splitJapaneseTranslations } from "./utils";
 
 export async function listWords(filters: SearchFilters): Promise<WordListItem[]> {
   const queryText = filters.query.trim();
@@ -37,7 +39,7 @@ export async function listWords(filters: SearchFilters): Promise<WordListItem[]>
         w.id,
         w.text,
         w.pronunciation,
-        w.japanese,
+        '' AS japanese,
         w.meaning,
         w.etymology,
         w.origin,
@@ -66,20 +68,27 @@ export async function listWords(filters: SearchFilters): Promise<WordListItem[]>
       [filters.partOfSpeechId, filters.categoryId],
     ),
   );
+  const rowsWithTranslations = await hydrateJapaneseTranslations(rows);
 
   if (!queryText) {
-    return rows.map(mapWordListRow);
+    return rowsWithTranslations.map(mapWordListRow);
   }
 
   const queryEmbedding = await createQueryEmbedding(queryText);
   if (!queryEmbedding) {
-    return rows.map(mapWordListRow);
+    return rowsWithTranslations.map(mapWordListRow);
   }
 
-  const rowsWithEmbeddings = await ensureWordEmbeddings(rows);
+  const rowsWithEmbeddings = await ensureWordEmbeddings(rowsWithTranslations);
+  const translationEmbeddings = await ensureTranslationEmbeddings(rowsWithEmbeddings);
   const scoredRows = rowsWithEmbeddings.map((row) => {
-    const embedding = parseEmbedding(row.meaning_embedding);
-    const semanticScore = embedding ? cosineSimilarity(queryEmbedding, embedding) : Number.NEGATIVE_INFINITY;
+    const wordEmbedding = parseEmbedding(row.meaning_embedding);
+    const wordScore = wordEmbedding ? cosineSimilarity(queryEmbedding, wordEmbedding) : Number.NEGATIVE_INFINITY;
+    const translationScore = Math.max(
+      Number.NEGATIVE_INFINITY,
+      ...(translationEmbeddings.get(row.id) ?? []).map((embedding) => cosineSimilarity(queryEmbedding, embedding)),
+    );
+    const semanticScore = Math.max(wordScore, translationScore);
     const lexicalBoost = getLexicalBoost(row, queryText);
 
     return {
@@ -112,18 +121,21 @@ async function ensureWordEmbeddings(rows: DbWordListRow[]): Promise<DbWordListRo
       continue;
     }
 
-    const searchText = buildWordSearchText({
-      text: row.text,
-      pronunciation: row.pronunciation,
-      japanese: row.japanese,
-      meaning: row.meaning,
-      etymology: row.etymology,
-      origin: row.origin,
-      notes: row.notes,
-      partOfSpeechName: row.part_of_speech_name,
-      categoryNames: row.category_names ? row.category_names.split(",").filter(Boolean) : [],
-    });
-    const meaningEmbedding = serializeEmbedding(await createPassageEmbedding(searchText));
+    const meaningEmbedding = serializeEmbedding(
+      await createPassageEmbedding(
+        buildWordSearchText({
+          text: row.text,
+          pronunciation: row.pronunciation,
+          japanese: row.japanese,
+          meaning: row.meaning,
+          etymology: row.etymology,
+          origin: row.origin,
+          notes: row.notes,
+          partOfSpeechName: row.part_of_speech_name,
+          categoryNames: splitCategoryNames(row.category_names),
+        }),
+      ),
+    );
 
     await withDatabase((db) =>
       db.execute(`UPDATE words SET meaning_embedding = $1 WHERE id = $2`, [meaningEmbedding, row.id]),
@@ -136,6 +148,65 @@ async function ensureWordEmbeddings(rows: DbWordListRow[]): Promise<DbWordListRo
   }
 
   return nextRows;
+}
+
+async function ensureTranslationEmbeddings(rows: DbWordListRow[]): Promise<Map<string, number[][]>> {
+  if (rows.length === 0) {
+    return new Map();
+  }
+
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
+  const translations = await withDatabase((db) =>
+    db.select<DbTranslationRow[]>(
+      `SELECT id, word_id, text, embedding, sort_order
+       FROM word_translations
+       ORDER BY word_id ASC, sort_order ASC`,
+    ),
+  );
+  const embeddingsByWord = new Map<string, number[][]>();
+
+  for (const translation of translations) {
+    const row = rowsById.get(translation.word_id);
+    if (!row) {
+      continue;
+    }
+
+    let embedding = parseEmbedding(translation.embedding);
+    if (!embedding) {
+      const serializedEmbedding = serializeEmbedding(
+        await createPassageEmbedding(
+          [
+            `語形: ${row.text}`,
+            row.pronunciation ? `発音: ${row.pronunciation}` : "",
+            `日本語訳: ${translation.text}`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        ),
+      );
+      await withDatabase((db) =>
+        db.execute(`UPDATE word_translations SET embedding = $1 WHERE id = $2`, [
+          serializedEmbedding,
+          translation.id,
+        ]),
+      );
+      embedding = parseEmbedding(serializedEmbedding);
+    }
+
+    if (!embedding) {
+      continue;
+    }
+
+    const list = embeddingsByWord.get(translation.word_id) ?? [];
+    list.push(embedding);
+    embeddingsByWord.set(translation.word_id, list);
+  }
+
+  return embeddingsByWord;
+}
+
+function splitCategoryNames(value: string | null | undefined): string[] {
+  return value ? value.split(",").filter(Boolean) : [];
 }
 
 function getLexicalBoost(row: DbWordListRow, queryText: string): number {
@@ -177,13 +248,17 @@ export async function getWord(wordId: string): Promise<WordRecord | null> {
 export async function listAllWordReferences(): Promise<WordReference[]> {
   const rows = await withDatabase((db) =>
     db.select<DbWordReferenceRow[]>(
-      `SELECT id, text, japanese
-       FROM words
-       ORDER BY text ASC, updated_at DESC`,
+      `SELECT
+         w.id,
+         w.text,
+         '' AS japanese
+       FROM words w
+       ORDER BY w.text ASC, w.updated_at DESC`,
     ),
   );
+  const rowsWithTranslations = await hydrateJapaneseTranslations(rows);
 
-  return rows.map((row) => ({
+  return rowsWithTranslations.map((row) => ({
     id: row.id,
     text: row.text,
     japanese: row.japanese ?? "",
@@ -201,16 +276,22 @@ export async function findDuplicateWords(
 
   const rows = await withDatabase((db) =>
     db.select<DbDuplicateRow[]>(
-      `SELECT id, text, japanese, pronunciation, updated_at
-       FROM words
-       WHERE text = $1
-         AND ($2 = '' OR id <> $2)
-       ORDER BY updated_at DESC`,
+      `SELECT
+         w.id,
+         w.text,
+         '' AS japanese,
+         w.pronunciation,
+         w.updated_at
+       FROM words w
+       WHERE w.text = $1
+         AND ($2 = '' OR w.id <> $2)
+       ORDER BY w.updated_at DESC`,
       [candidate, excludeWordId ?? ""],
     ),
   );
+  const rowsWithTranslations = await hydrateJapaneseTranslations(rows);
 
-  return rows.map((row) => ({
+  return rowsWithTranslations.map((row) => ({
     id: row.id,
     text: row.text,
     pronunciation: row.pronunciation ?? "",
@@ -220,6 +301,36 @@ export async function findDuplicateWords(
     categoryNames: [],
     updatedAt: row.updated_at,
   }));
+}
+
+async function hydrateJapaneseTranslations<T extends { id: string; japanese?: string | null }>(
+  rows: T[],
+): Promise<T[]> {
+  if (rows.length === 0) {
+    return rows;
+  }
+
+  const translations = await withDatabase((db) =>
+    db.select<DbTranslationRow[]>(
+      `SELECT id, word_id, text, sort_order
+       FROM word_translations
+       ORDER BY word_id ASC, sort_order ASC`,
+    ),
+  );
+  const translationsByWord = new Map<string, string[]>();
+
+  for (const translation of translations) {
+    const list = translationsByWord.get(translation.word_id) ?? [];
+    list.push(translation.text);
+    translationsByWord.set(translation.word_id, list);
+  }
+
+  return rows.map((row) => {
+    const wordTranslations = translationsByWord.get(row.id) ?? [];
+    return wordTranslations.length > 0
+      ? { ...row, japanese: joinJapaneseTranslations(wordTranslations) }
+      : { ...row, japanese: "" };
+  });
 }
 
 export async function listPartsOfSpeech(): Promise<ManagedEntity[]> {
@@ -267,6 +378,7 @@ export async function getDictionarySnapshot(): Promise<DictionarySnapshot> {
     partsOfSpeech,
     categories,
     words,
+    translations,
     wordCategories,
     examples,
     components,
@@ -301,7 +413,28 @@ export async function getDictionarySnapshot(): Promise<DictionarySnapshot> {
         ORDER BY c.name ASC`,
       )
     ).map(mapManagedEntity),
-    words: await db.select<DbWordRow[]>(`SELECT * FROM words ORDER BY updated_at DESC, text ASC`),
+    words: await db.select<DbWordRow[]>(
+      `SELECT
+        id,
+        text,
+        pronunciation,
+        '' AS japanese,
+        meaning,
+        etymology,
+        origin,
+        notes,
+        meaning_embedding,
+        part_of_speech_id,
+        created_at,
+        updated_at
+       FROM words
+       ORDER BY updated_at DESC, text ASC`,
+    ),
+    translations: await db.select<DbTranslationRow[]>(
+      `SELECT id, word_id, text, sort_order
+       FROM word_translations
+       ORDER BY word_id ASC, sort_order ASC`,
+    ),
     wordCategories: await db.select<DbWordCategoryRow[]>(
       `SELECT wc.word_id, wc.category_id, c.name AS category_name
        FROM word_categories wc
@@ -321,9 +454,16 @@ export async function getDictionarySnapshot(): Promise<DictionarySnapshot> {
   }));
 
   const posMap = new Map(partsOfSpeech.map((item) => [item.id, item.name]));
+  const translationsByWord = new Map<string, string[]>();
   const categoryRowsByWord = new Map<string, DbWordCategoryRow[]>();
   const examplesByWord = new Map<string, WordRecord["examples"]>();
   const componentsByWord = new Map<string, WordRecord["components"]>();
+
+  for (const row of translations) {
+    const list = translationsByWord.get(row.word_id) ?? [];
+    list.push(row.text);
+    translationsByWord.set(row.word_id, list);
+  }
 
   for (const row of wordCategories) {
     const list = categoryRowsByWord.get(row.word_id) ?? [];
@@ -360,8 +500,12 @@ export async function getDictionarySnapshot(): Promise<DictionarySnapshot> {
   return {
     words: words.map((row) => {
       const categoryRows = categoryRowsByWord.get(row.id) ?? [];
+      const translationList = translationsByWord.get(row.id) ?? [];
       return mapWordRecord(
-        row,
+        {
+          ...row,
+          japanese: joinJapaneseTranslations(translationList),
+        },
         row.part_of_speech_id ? posMap.get(row.part_of_speech_id) ?? "" : "",
         categoryRows.map((category) => category.category_id),
         categoryRows.map((category) => category.category_name),

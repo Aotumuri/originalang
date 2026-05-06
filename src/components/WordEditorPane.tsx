@@ -1,4 +1,10 @@
-import { formatDateTime } from "../lib/utils";
+import { useEffect, useState } from "react";
+import {
+  formatDateTime,
+  formatJapaneseTranslations,
+  joinJapaneseTranslations,
+  splitJapaneseTranslations,
+} from "../lib/utils";
 import type {
   ExampleRecord,
   ManagedEntity,
@@ -60,6 +66,18 @@ export default function WordEditorPane({
   onUpdateExample,
   onDeleteExample,
 }: WordEditorPaneProps) {
+  const [translationInputs, setTranslationInputs] = useState<string[]>([""]);
+
+  useEffect(() => {
+    if (!draft) {
+      setTranslationInputs([""]);
+      return;
+    }
+
+    const translations = splitJapaneseTranslations(draft.japanese);
+    setTranslationInputs(translations.length > 0 ? translations : [""]);
+  }, [draft?.id, draft?.japanese]);
+
   if (!draft) {
     return (
       <section className="editor-panel">
@@ -69,6 +87,24 @@ export default function WordEditorPane({
         </div>
       </section>
     );
+  }
+
+  function updateJapaneseTranslation(index: number, value: string): void {
+    const next = [...translationInputs];
+    next[index] = value;
+    setTranslationInputs(next);
+    onFieldChange("japanese", joinJapaneseTranslations(next));
+  }
+
+  function addJapaneseTranslation(): void {
+    setTranslationInputs([...translationInputs, ""]);
+  }
+
+  function removeJapaneseTranslation(index: number): void {
+    const next = translationInputs.filter((_, itemIndex) => itemIndex !== index);
+    const normalizedNext = next.length > 0 ? next : [""];
+    setTranslationInputs(normalizedNext);
+    onFieldChange("japanese", joinJapaneseTranslations(next));
   }
 
   return (
@@ -95,7 +131,7 @@ export default function WordEditorPane({
           <ul>
             {duplicateWords.map((word) => (
               <li key={word.id}>
-                {word.text} / {word.japanese || "日本語訳なし"}
+                {word.text} / {formatJapaneseTranslations(word.japanese) || "日本語訳なし"}
               </li>
             ))}
           </ul>
@@ -116,13 +152,31 @@ export default function WordEditorPane({
           />
         </label>
 
-        <label>
-          <span>日本語訳</span>
-          <input
-            value={draft.japanese}
-            onChange={(event) => onFieldChange("japanese", event.target.value)}
-          />
-        </label>
+        <div className="translation-field">
+          <span className="field-label">日本語訳</span>
+          <div className="translation-list">
+            {translationInputs.map((translation, index) => (
+              <div className="translation-row" key={index}>
+                <input
+                  value={translation}
+                  placeholder={`訳 ${index + 1}`}
+                  onChange={(event) => updateJapaneseTranslation(index, event.target.value)}
+                />
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => removeJapaneseTranslation(index)}
+                  disabled={translationInputs.length === 1 && !translation}
+                >
+                  削除
+                </button>
+              </div>
+            ))}
+          </div>
+          <button className="secondary-button" type="button" onClick={addJapaneseTranslation}>
+            訳を追加
+          </button>
+        </div>
 
         <label>
           <span>品詞</span>

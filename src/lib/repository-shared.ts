@@ -23,7 +23,7 @@ export type DbWordRow = {
   id: string;
   text: string;
   pronunciation: string | null;
-  japanese: string | null;
+  japanese?: string | null;
   meaning: string | null;
   etymology: string | null;
   origin: string | null;
@@ -38,6 +38,14 @@ export type DbWordCategoryRow = {
   word_id: string;
   category_id: string;
   category_name: string;
+};
+
+export type DbTranslationRow = {
+  id: string;
+  word_id: string;
+  text: string;
+  embedding: string | null;
+  sort_order: number;
 };
 
 export type DbExampleRow = {
@@ -62,7 +70,7 @@ export type DbWordListRow = {
   id: string;
   text: string;
   pronunciation: string | null;
-  japanese: string | null;
+  japanese?: string | null;
   meaning?: string | null;
   etymology?: string | null;
   origin?: string | null;
@@ -77,13 +85,13 @@ export type DbWordListRow = {
 export type DbWordReferenceRow = {
   id: string;
   text: string;
-  japanese: string | null;
+  japanese?: string | null;
 };
 
 export type DbDuplicateRow = {
   id: string;
   text: string;
-  japanese: string | null;
+  japanese?: string | null;
   pronunciation: string | null;
   updated_at: string;
 };

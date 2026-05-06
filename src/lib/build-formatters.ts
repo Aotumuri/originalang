@@ -1,6 +1,6 @@
 import type { DictionarySnapshot, ManagedEntity, WordRecord } from "../types";
 import type { PartFileInfo } from "./build-types";
-import { nowIsoString } from "./utils";
+import { formatJapaneseTranslations, splitJapaneseTranslations, nowIsoString } from "./utils";
 
 function line(label: string, value: string): string {
   return `${label}: ${value}`;
@@ -28,13 +28,22 @@ function joinExamples(word: WordRecord): string[] {
   return lines;
 }
 
+function japaneseTranslationLines(word: WordRecord): string[] {
+  const translations = splitJapaneseTranslations(word.japanese);
+  if (translations.length === 0) {
+    return [line("日本語訳", "")];
+  }
+
+  return ["日本語訳:", ...translations.map((translation) => `- ${translation}`)];
+}
+
 export function buildPartOfSpeechFile(part: PartFileInfo): string {
   const blocks = [`# ${part.name}`];
 
   for (const word of part.words) {
     blocks.push(`## ${word.text}`);
     blocks.push(line("発音", word.pronunciation));
-    blocks.push(line("日本語訳", word.japanese));
+    blocks.push(...japaneseTranslationLines(word));
     blocks.push(line("品詞", word.partOfSpeechName || "未設定"));
     blocks.push(line("カテゴリ", joinCategories(word)));
     blocks.push(line("構成", word.etymology));
@@ -66,7 +75,7 @@ export function buildAllWordsIndex(snapshot: DictionarySnapshot): string {
 
   for (const word of snapshot.words) {
     lines.push(
-      `- ${word.text} / ${word.pronunciation || "-"} / ${word.japanese || "-"} / ${word.partOfSpeechName || "未設定"} / ${joinCategories(word)}`,
+      `- ${word.text} / ${word.pronunciation || "-"} / ${formatJapaneseTranslations(word.japanese) || "-"} / ${word.partOfSpeechName || "未設定"} / ${joinCategories(word)}`,
     );
   }
 

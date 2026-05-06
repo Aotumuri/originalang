@@ -258,6 +258,7 @@ textarea {
 }
 
 .form-grid label,
+.translation-field,
 .example-card label {
   display: flex;
   flex-direction: column;
@@ -273,6 +274,22 @@ textarea {
 
 .full-width {
   grid-column: 1 / -1;
+}
+
+.translation-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.translation-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+
+.translation-row button,
+.translation-field > button {
+  white-space: nowrap;
 }
 
 .checkbox-grid {

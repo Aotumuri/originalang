@@ -1,4 +1,5 @@
 import type { ParsedBulkWord } from "../lib/bulk-import";
+import { formatJapaneseTranslations } from "../lib/utils";
 import type { ManagedEntity } from "../types";
 
 type BulkWordImportModalProps = {
@@ -57,7 +58,9 @@ export default function BulkWordImportModal({
 構成　　：λ（広がり・循環）+ дrazи（日）
 省略語　：λaд（ラド）
 意味　　：多くの日が巡り、再び同じ位置へ戻る長期循環の単位。
-由来　　：時間が「広く展開し、包み直される」感覚をλで表現。`}
+由来　　：時間が「広く展開し、包み直される」感覚をλで表現。
+
+iλa（イラ） 　日本語訳：存在する、ある、いる 　構成：i（鋭い導入）+ λa（存在感）`}
             onChange={(event) => onRawTextChange(event.target.value)}
             disabled={isSubmitting}
           />
@@ -73,7 +76,7 @@ export default function BulkWordImportModal({
                 <div className="bulk-preview-item" key={entry.id}>
                   <strong>{entry.text}</strong>
                   <span>{entry.pronunciation || "発音なし"}</span>
-                  <span>{entry.japanese || "日本語訳なし"}</span>
+                  <span>{formatJapaneseTranslations(entry.japanese) || "日本語訳なし"}</span>
                   <span>{entry.etymology || "構成なし"}</span>
                   {entry.meaning ? <span>{entry.meaning}</span> : null}
                   {entry.origin ? <span>{entry.origin}</span> : null}

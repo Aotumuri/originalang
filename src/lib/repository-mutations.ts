@@ -12,7 +12,13 @@ import {
   normalizeExamples,
   runTransaction,
 } from "./repository-shared";
-import { nowIsoString, toOptionalString } from "./utils";
+import {
+  createId,
+  normalizeJapaneseTranslations,
+  nowIsoString,
+  splitJapaneseTranslations,
+  toOptionalString,
+} from "./utils";
 import type { ManagedEntity, WordRecord } from "../types";
 
 export async function savePartOfSpeech(
@@ -94,7 +100,7 @@ export async function saveWord(word: WordRecord): Promise<WordRecord> {
     ...word,
     text,
     pronunciation: toOptionalString(word.pronunciation),
-    japanese: toOptionalString(word.japanese),
+    japanese: normalizeJapaneseTranslations(word.japanese),
     meaning: toOptionalString(word.meaning),
     etymology: toOptionalString(word.etymology),
     origin: toOptionalString(word.origin),
@@ -105,8 +111,7 @@ export async function saveWord(word: WordRecord): Promise<WordRecord> {
     components,
     updatedAt: timestamp,
   };
-  const searchText = buildWordSearchText(normalized);
-  const meaningEmbedding = serializeEmbedding(await createPassageEmbedding(searchText));
+  const meaningEmbedding = serializeEmbedding(await createPassageEmbedding(buildWordSearchText(normalized)));
 
   await runTransaction(async (db) => {
     await db.execute(
@@ -114,7 +119,6 @@ export async function saveWord(word: WordRecord): Promise<WordRecord> {
         id,
         text,
         pronunciation,
-        japanese,
         meaning,
         etymology,
         origin,
@@ -123,11 +127,10 @@ export async function saveWord(word: WordRecord): Promise<WordRecord> {
         part_of_speech_id,
         created_at,
         updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       ON CONFLICT(id) DO UPDATE SET
         text = excluded.text,
         pronunciation = excluded.pronunciation,
-        japanese = excluded.japanese,
         meaning = excluded.meaning,
         etymology = excluded.etymology,
         origin = excluded.origin,
@@ -139,7 +142,6 @@ export async function saveWord(word: WordRecord): Promise<WordRecord> {
         normalized.id,
         normalized.text,
         normalized.pronunciation,
-        normalized.japanese,
         normalized.meaning,
         normalized.etymology,
         normalized.origin,
@@ -152,6 +154,7 @@ export async function saveWord(word: WordRecord): Promise<WordRecord> {
     );
 
     await db.execute(`DELETE FROM word_categories WHERE word_id = $1`, [normalized.id]);
+    await db.execute(`DELETE FROM word_translations WHERE word_id = $1`, [normalized.id]);
     await db.execute(`DELETE FROM examples WHERE word_id = $1`, [normalized.id]);
     await db.execute(`DELETE FROM word_components WHERE word_id = $1`, [normalized.id]);
 
@@ -159,6 +162,25 @@ export async function saveWord(word: WordRecord): Promise<WordRecord> {
       await db.execute(
         `INSERT INTO word_categories (word_id, category_id) VALUES ($1, $2)`,
         [normalized.id, categoryId],
+      );
+    }
+
+    for (const [index, translation] of splitJapaneseTranslations(normalized.japanese).entries()) {
+      const translationEmbedding = serializeEmbedding(
+        await createPassageEmbedding(
+          [
+            `語形: ${normalized.text}`,
+            normalized.pronunciation ? `発音: ${normalized.pronunciation}` : "",
+            `日本語訳: ${translation}`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        ),
+      );
+      await db.execute(
+        `INSERT INTO word_translations (id, word_id, text, embedding, sort_order)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [createId("translation"), normalized.id, translation, translationEmbedding, index],
       );
     }
 
@@ -206,6 +228,7 @@ export async function resetDictionary(): Promise<void> {
   await runTransaction(async (db) => {
     await db.execute(`DELETE FROM word_components`);
     await db.execute(`DELETE FROM examples`);
+    await db.execute(`DELETE FROM word_translations`);
     await db.execute(`DELETE FROM word_categories`);
     await db.execute(`DELETE FROM words`);
     await db.execute(`DELETE FROM categories`);

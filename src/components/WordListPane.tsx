@@ -1,4 +1,4 @@
-import { formatDateTime } from "../lib/utils";
+import { formatDateTime, formatJapaneseTranslations } from "../lib/utils";
 import type { WordListItem } from "../types";
 
 type WordListPaneProps = {
@@ -43,7 +43,7 @@ export default function WordListPane({
               <strong>{word.text || "(未入力)"}</strong>
               {word.isDraft ? <span className="draft-chip">新規</span> : null}
             </div>
-            <div className="word-row-sub">{word.japanese || "日本語訳なし"}</div>
+            <div className="word-row-sub">{formatJapaneseTranslations(word.japanese) || "日本語訳なし"}</div>
             <div className="word-row-meta">
               <span>{word.partOfSpeechName || "品詞未設定"}</span>
               <span>{formatDateTime(word.updatedAt)}</span>

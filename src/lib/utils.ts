@@ -18,6 +18,26 @@ export function toOptionalString(value: string | null | undefined): string {
   return value?.trim() ?? "";
 }
 
+export function splitJapaneseTranslations(value: string): string[] {
+  return value
+    .split(/\r?\n|[、,／/]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export function joinJapaneseTranslations(items: string[]): string {
+  return items.map((item) => item.trim()).filter(Boolean).join("\n");
+}
+
+export function normalizeJapaneseTranslations(value: string): string {
+  return joinJapaneseTranslations(splitJapaneseTranslations(value));
+}
+
+export function formatJapaneseTranslations(value: string): string {
+  const translations = splitJapaneseTranslations(value);
+  return translations.length > 0 ? translations.join(" / ") : "";
+}
+
 export function formatDateTime(value: string): string {
   if (!value) {
     return "";

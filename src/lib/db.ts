@@ -25,7 +25,6 @@ const SCHEMA_STATEMENTS = [
     id TEXT PRIMARY KEY,
     text TEXT NOT NULL,
     pronunciation TEXT,
-    japanese TEXT,
     meaning TEXT,
     etymology TEXT,
     origin TEXT,
@@ -41,6 +40,14 @@ const SCHEMA_STATEMENTS = [
     PRIMARY KEY (word_id, category_id),
     FOREIGN KEY (word_id) REFERENCES words(id) ON DELETE CASCADE,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS word_translations (
+    id TEXT PRIMARY KEY,
+    word_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    embedding TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (word_id) REFERENCES words(id) ON DELETE CASCADE
   )`,
   `CREATE TABLE IF NOT EXISTS examples (
     id TEXT PRIMARY KEY,
@@ -96,6 +103,11 @@ async function initializeDatabase(db: Database): Promise<void> {
   const wordColumns = await db.select<{ name: string }[]>(`PRAGMA table_info(words)`);
   if (!wordColumns.some((column) => column.name === "meaning_embedding")) {
     await db.execute(`ALTER TABLE words ADD COLUMN meaning_embedding TEXT`);
+  }
+
+  const translationColumns = await db.select<{ name: string }[]>(`PRAGMA table_info(word_translations)`);
+  if (!translationColumns.some((column) => column.name === "embedding")) {
+    await db.execute(`ALTER TABLE word_translations ADD COLUMN embedding TEXT`);
   }
 
   await seedInitialData(db);

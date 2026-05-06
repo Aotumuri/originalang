@@ -1,3 +1,5 @@
+import { splitJapaneseTranslations } from "./utils";
+
 const EMBEDDING_MODEL_ID = "intfloat/multilingual-e5-small";
 const EMBEDDING_DIMENSION = 384;
 const PASSAGE_PREFIX = "passage: ";
@@ -40,10 +42,11 @@ async function getFeatureExtractor(): Promise<FeatureExtractor> {
 }
 
 export function buildWordSearchText(source: SearchTextSource): string {
+  const japaneseTranslations = splitJapaneseTranslations(source.japanese ?? "");
   const sections = [
     ["語形", source.text],
     ["発音", source.pronunciation ?? ""],
-    ["日本語訳", source.japanese ?? ""],
+    ["日本語訳", japaneseTranslations.map((translation) => `- ${translation}`).join("\n")],
     ["意味", source.meaning ?? ""],
     ["構成", source.etymology ?? ""],
     ["由来", source.origin ?? ""],

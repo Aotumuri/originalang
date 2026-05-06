@@ -1,5 +1,5 @@
 import { extractComponentsFromEtymology } from "./etymology";
-import { createId, nowIsoString } from "./utils";
+import { createId, normalizeJapaneseTranslations, nowIsoString } from "./utils";
 import type { ManagedEntity, WordRecord } from "../types";
 
 export type ParsedBulkWord = {
@@ -21,6 +21,8 @@ export type BulkImportParseResult = {
 
 const COLUMN_SEPARATOR_PATTERN = /(?:　+|\t+| {2,})/;
 const ENTRY_SPLIT_PATTERN = /\s+(?=\S+[（(][^）)]+[）)](?:　+|\t+| {2,}))/g;
+const BULK_LABEL_PATTERN =
+  /(言語表記|単語|発音|読み|日本語訳|訳|構成|意味|由来|省略語|略語|メモ|備考)\s*[：:]/g;
 
 export function parseBulkImportText(raw: string): BulkImportParseResult {
   const normalized = raw.replace(/\r\n/g, "\n").trim();
@@ -78,23 +80,36 @@ function parseBulkImportEntry(value: string): ParsedBulkWord | null {
   const text = match[1].trim();
   const pronunciation = (match[2] ?? match[3] ?? "").trim();
   const rest = match[4].trim();
+  const inlineFields = parseInlineLabeledBulkFields(rest);
+  if (inlineFields) {
+    return createParsedBulkWord({
+      text,
+      pronunciation: inlineFields.pronunciation?.trim() || pronunciation,
+      japanese: normalizeJapaneseTranslations(inlineFields.japanese ?? ""),
+      etymology: inlineFields.etymology?.trim() ?? "",
+      meaning: inlineFields.meaning?.trim() ?? "",
+      origin: inlineFields.origin?.trim() ?? "",
+      notes: inlineFields.notes?.trim() ?? "",
+      source: value.trim(),
+    });
+  }
+
   const columns = rest.split(COLUMN_SEPARATOR_PATTERN).map((column) => column.trim()).filter(Boolean);
 
   if (!text || columns.length < 2) {
     return null;
   }
 
-  return {
-    id: createId("word"),
+  return createParsedBulkWord({
     text,
     pronunciation,
-    japanese: columns[0],
+    japanese: normalizeJapaneseTranslations(columns[0]),
     etymology: columns.slice(1).join(" "),
     meaning: "",
     origin: "",
     notes: "",
     source: value.trim(),
-  };
+  });
 }
 
 function hasLabeledBulkEntries(value: string): boolean {
@@ -168,17 +183,58 @@ function parseLabeledBulkImportEntry(value: string): ParsedBulkWord | null {
     return null;
   }
 
-  return {
-    id: createId("word"),
+  return createParsedBulkWord({
     text,
     pronunciation: fields.pronunciation?.trim() ?? "",
-    japanese: fields.japanese?.trim() ?? "",
+    japanese: normalizeJapaneseTranslations(fields.japanese ?? ""),
     etymology: fields.etymology?.trim() ?? "",
     meaning: fields.meaning?.trim() ?? "",
     origin: fields.origin?.trim() ?? "",
     notes: fields.notes?.trim() ?? "",
     source: value.trim(),
+  });
+}
+
+function createParsedBulkWord(entry: Omit<ParsedBulkWord, "id">): ParsedBulkWord | null {
+  const text = entry.text.trim();
+  if (!text) {
+    return null;
+  }
+
+  return {
+    ...entry,
+    id: createId("word"),
+    text,
   };
+}
+
+function parseInlineLabeledBulkFields(
+  value: string,
+): Partial<Record<keyof Omit<ParsedBulkWord, "id" | "source" | "text">, string>> | null {
+  const matches = [...value.matchAll(BULK_LABEL_PATTERN)];
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const fields: Partial<Record<keyof Omit<ParsedBulkWord, "id" | "source" | "text">, string>> = {};
+
+  for (const [index, match] of matches.entries()) {
+    const label = match[1];
+    const resolvedLabel = resolveBulkLabel(label);
+    if (!resolvedLabel || resolvedLabel.field === "text") {
+      continue;
+    }
+
+    const valueStart = match.index + match[0].length;
+    const valueEnd = matches[index + 1]?.index ?? value.length;
+    const fieldValue = value.slice(valueStart, valueEnd).trim();
+    fields[resolvedLabel.field] = appendBulkFieldValue(
+      fields[resolvedLabel.field],
+      formatBulkFieldValue(fieldValue, resolvedLabel.prefix),
+    );
+  }
+
+  return Object.keys(fields).length > 0 ? fields : null;
 }
 
 type BulkLabelResolution = {

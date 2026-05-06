@@ -2,7 +2,7 @@ import { EXPORT_VERSION } from "../constants";
 import type { DictionaryExport, ExportWord } from "../types";
 import { getDictionarySnapshot } from "./repository-queries";
 import { assertDictionaryImport, runTransaction } from "./repository-shared";
-import { createId, nowIsoString } from "./utils";
+import { createId, normalizeJapaneseTranslations, nowIsoString, splitJapaneseTranslations } from "./utils";
 
 export async function getDictionaryExport(): Promise<DictionaryExport> {
   const snapshot = await getDictionarySnapshot();
@@ -75,6 +75,7 @@ export async function replaceDictionaryFromImport(data: DictionaryExport): Promi
   await runTransaction(async (db) => {
     await db.execute(`DELETE FROM word_components`);
     await db.execute(`DELETE FROM examples`);
+    await db.execute(`DELETE FROM word_translations`);
     await db.execute(`DELETE FROM word_categories`);
     await db.execute(`DELETE FROM words`);
     await db.execute(`DELETE FROM categories`);
@@ -110,12 +111,12 @@ export async function replaceDictionaryFromImport(data: DictionaryExport): Promi
 
     for (const word of data.words) {
       const wordId = word.id || createId("word");
+      const japanese = normalizeJapaneseTranslations(word.japanese ?? "");
       await db.execute(
         `INSERT INTO words (
           id,
           text,
           pronunciation,
-          japanese,
           meaning,
           etymology,
           origin,
@@ -123,12 +124,11 @@ export async function replaceDictionaryFromImport(data: DictionaryExport): Promi
           part_of_speech_id,
           created_at,
           updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
           wordId,
           word.text,
           word.pronunciation ?? "",
-          word.japanese ?? "",
           word.meaning ?? "",
           word.etymology ?? "",
           word.origin ?? "",
@@ -143,6 +143,14 @@ export async function replaceDictionaryFromImport(data: DictionaryExport): Promi
         await db.execute(
           `INSERT INTO word_categories (word_id, category_id) VALUES ($1, $2)`,
           [wordId, categoryId],
+        );
+      }
+
+      for (const [index, translation] of splitJapaneseTranslations(japanese).entries()) {
+        await db.execute(
+          `INSERT INTO word_translations (id, word_id, text, embedding, sort_order)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [createId("translation"), wordId, translation, null, index],
         );
       }
 
